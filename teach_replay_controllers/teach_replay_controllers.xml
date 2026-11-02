@@ -1,0 +1,18 @@
+<library path="teach_replay_controllers">
+  <class name="teach_replay_controllers/TeachRecordController"
+         type="teach_replay_controllers::TeachRecordController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Gravity compensation (zero torque, the robot compensates its own weight) plus joint damping
+      tau = -D*dq for hand-guided teaching; publishes q, dq and timestamps for rosbag recording.
+    </description>
+  </class>
+  <class name="teach_replay_controllers/TrajectoryReplayController"
+         type="teach_replay_controllers::TrajectoryReplayController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Loads a preprocessed fixed-rate joint trajectory file, moves slowly to its start, then
+      tracks it point by point with a joint impedance law.
+    </description>
+  </class>
+</library>

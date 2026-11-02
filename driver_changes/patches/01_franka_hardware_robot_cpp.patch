@@ -1,0 +1,74 @@
+--- a/src/robots/franka_arm/franka_hardware/src/robot.cpp	2026-11-02 18:51:41.187233293 -0500
++++ b/src/robots/franka_arm/franka_hardware/src/robot.cpp	2026-11-02 18:51:41.187233293 -0500
+@@ -34,7 +34,18 @@
+   }
+   try{
+     robot_ = std::make_unique<franka::Robot>(robot_ip, rt_config);
+-    setDefaultParams();
++    try {
++      setDefaultParams();
++    } catch (const franka::CommandException& e) {
++      // The robot is still in the reflex left by the previous session. Starting in that state
++      // leaves has_error_ set, and activation then deadlocks in read()/stopRobot(). Clear it
++      // first (this only resets the error state, it does not move the robot) and retry once.
++      RCLCPP_WARN(logger, "Robot is in an error state at startup (%s); running automatic error "
++                  "recovery", e.what());
++      robot_->automaticErrorRecovery();
++      setDefaultParams();
++      RCLCPP_INFO(logger, "Automatic error recovery at startup succeeded");
++    }
+   }
+   catch(franka::ControlException& e){
+     RCLCPP_ERROR(logger, "Robot is in control error state! Please trigger automatic recovery first.");
+@@ -79,28 +90,40 @@
+ }
+ 
+ franka::RobotState Robot::read() {
+-  std::lock_guard<std::mutex> lock(read_mutex_);
+-  if(hasError() || isStopped()){ // either the robot is in error, or it doesn't have an active control/read loop running
+-    try{
+-      current_state_ = robot_->readOnce();
+-      if(hasError()){
+-        stopRobot();
++  bool stop_needed = false;
++  franka::RobotState state;
++  {
++    std::lock_guard<std::mutex> lock(read_mutex_);
++    if(hasError() || isStopped()){ // either the robot is in error, or it doesn't have an active control/read loop running
++      try{
++        current_state_ = robot_->readOnce();
++        stop_needed = hasError();
++      }
++      catch(franka::InvalidOperationException& e){
++        std::cout << "Invalid Operation Exception: " << e.what() << std::endl;
+       }
+     }
+-    catch(franka::InvalidOperationException& e){
+-      std::cout << "Invalid Operation Exception: " << e.what() << std::endl;
+-    }
++    state = current_state_;
+   }
+-  return {current_state_};
++  // stopRobot() joins the control/read thread, whose callback takes read_mutex_ on every
++  // cycle -- calling it while still holding read_mutex_ deadlocks.
++  if (stop_needed) {
++    stopRobot();
++  }
++  return state;
+ }
+ franka_hardware::Model* Robot::getModel() {
+   return franka_hardware_model_.get();
+ }
+ 
+ void Robot::stopRobot() {
++  // Called from the controller_manager thread and from the error recovery service.
++  std::lock_guard<std::mutex> lock(robot_mutex_);
+   if (!stopped_) {
+     finish_ = true;
+-    control_thread_->join();
++    if (control_thread_ && control_thread_->joinable()) {
++      control_thread_->join();
++    }
+     robot_->stop();
+     finish_ = false;
+     stopped_ = true;

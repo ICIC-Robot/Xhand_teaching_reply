@@ -1,0 +1,6 @@
+# "/**" matches the node whatever its name/namespace: the launch file starts it as
+# /xhand_control/xhand_control_ros2, so the previous top-level key "xhand_control" never
+# matched and the node silently fell back to its built-in default of 10 Hz.
+/**:
+  ros__parameters:
+    update_rate: 100.0  # Hz
